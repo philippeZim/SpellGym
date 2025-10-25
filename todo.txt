@@ -24,3 +24,4 @@ x focus immer auf tipp feld
 - belohnungs system smylies daumen hoch ein brand eine figur.
 - mobile view scaling
 - footer zu weit oben
+- in den them settings wenn darkmode aktive ist sieht das light theme dark aus (Themes sollen nicht mit aktuellem theme gestyled werden)
