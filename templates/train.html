@@ -33,11 +33,11 @@
                     
                     <div class="form-control">
                         <div class="input-group">
-                            <button id="speakBtn" class="btn btn-info" data-sentence="{{ sentence }}">
+                            <button id="speakBtn" class="btn btn-info" type="button" data-sentence="{{ sentence }}">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
                                 Ganzen Satz
                             </button>
-                            <button id="speakNextWordsBtn" class="btn btn-secondary" data-sentence="{{ sentence }}">
+                            <button id="speakNextWordsBtn" class="btn btn-secondary" type="button" data-sentence="{{ sentence }}">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
                                 Nächste 3 Wörter
                             </button>
@@ -131,15 +131,21 @@
         
         // Event Listener für den "Ganzen Satz" Button
         if (speakBtn) {
-            speakBtn.addEventListener('click', () => {
+            speakBtn.addEventListener('click', (e) => {
+                e.preventDefault(); // Verhindert das Standardverhalten
                 const sentence = speakBtn.dataset.sentence;
                 speakText(sentence);
+                // Setzt den Fokus zurück auf das Textfeld
+                setTimeout(() => {
+                    userInput.focus();
+                }, 100);
             });
         }
         
         // Event Listener für den "Nächste 3 Wörter" Button
         if (speakNextWordsBtn) {
-            speakNextWordsBtn.addEventListener('click', () => {
+            speakNextWordsBtn.addEventListener('click', (e) => {
+                e.preventDefault(); // Verhindert das Standardverhalten
                 const fullSentence = speakNextWordsBtn.dataset.sentence;
                 const userText = userInput.value.trim();
                 
@@ -159,8 +165,15 @@
                 if (nextWords) {
                     speakText(nextWords);
                 }
+                // Setzt den Fokus zurück auf das Textfeld
+                setTimeout(() => {
+                    userInput.focus();
+                }, 100);
             });
         }
+        
+        // Stellt sicher, dass das Textfeld beim Laden der Seite den Fokus hat
+        userInput.focus();
     });
 </script>
 {% endblock %}

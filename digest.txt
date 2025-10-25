@@ -1,5 +1,5 @@
 Directory structure:
-└── german-diktat-trainer/
+└── SpellGym/
     ├── app.py
     ├── auth/
     │   └── __init__.py
@@ -30,7 +30,7 @@ import os
 from flask import Flask, render_template, request, session, redirect, url_for, flash
 from flask_session import Session
 from database import init_db, verify_user, create_user, get_user_by_username
-from diktat import get_diktate_list, parse_diktat, compare_texts
+from diktat import get_diktate_list, parse_diktat, compare_texts, get_diktate_metadata
 from auth import login_required, login_user, logout_user, validate_registration
 
 # --- Konfiguration ---
@@ -56,12 +56,75 @@ def inject_theme():
     theme = session.get('theme', 'light') # Standard ist 'light'
     return dict(theme=theme)
 
+# --- Helper Functions ---
+def render_stars(rating):
+    """Renders star rating HTML based on numeric rating."""
+    stars_html = '<div class="rating rating-sm">'
+    for i in range(1, 6):
+        if i <= rating:
+            stars_html += '<input type="radio" name="rating-' + str(rating) + '" class="mask mask-star-2 bg-orange-400" checked disabled />'
+        else:
+            stars_html += '<input type="radio" name="rating-' + str(rating) + '" class="mask mask-star-2 bg-orange-400" disabled />'
+    stars_html += '</div>'
+    return stars_html
+
 # --- Routen ---
 @app.route('/')
 def index():
     """Startseite: Zeigt alle verfügbaren Diktate an."""
-    diktate = get_diktate_list()
-    return render_template('index.html', diktate=diktate)
+    # Get filter parameters
+    search_query = request.args.get('search', '').strip()
+    thema_filter = request.args.get('thema', '')
+    uebung_filter = request.args.get('uebung', '')
+    schwierigkeit_filter = request.args.get('schwierigkeit', '')
+    
+    # Get all dictations with metadata
+    all_diktate = get_diktate_metadata()
+    
+    # Apply filters
+    filtered_diktate = []
+    
+    for diktat in all_diktate:
+        # Apply search filter
+        if search_query and search_query.lower() not in diktat.get('titel', '').lower() and \
+           search_query.lower() not in diktat.get('beschreibung', '').lower():
+            continue
+            
+        # Apply theme filter
+        if thema_filter and thema_filter != diktat.get('thema', ''):
+            continue
+            
+        # Apply exercise filter
+        if uebung_filter and uebung_filter != diktat.get('übung', ''):
+            continue
+            
+        # Apply difficulty filter
+        if schwierigkeit_filter and schwierigkeit_filter != diktat.get('schwierigkeit', ''):
+            continue
+            
+        # Add star rating HTML
+        try:
+            rating = int(diktat.get('schwierigkeit', 1))
+        except (ValueError, TypeError):
+            rating = 1
+        diktat['stars_html'] = render_stars(rating)
+        
+        filtered_diktate.append(diktat)
+    
+    # Get unique values for filter dropdowns
+    themen = sorted(set(d.get('thema', '') for d in all_diktate if d.get('thema')))
+    uebungen = sorted(set(d.get('übung', '') for d in all_diktate if d.get('übung')))
+    schwierigkeiten = sorted(set(d.get('schwierigkeit', '') for d in all_diktate if d.get('schwierigkeit')))
+    
+    return render_template('index.html', 
+                          diktate=filtered_diktate,
+                          themen=themen,
+                          uebungen=uebungen,
+                          schwierigkeiten=schwierigkeiten,
+                          search_query=search_query,
+                          thema_filter=thema_filter,
+                          uebung_filter=uebung_filter,
+                          schwierigkeit_filter=schwierigkeit_filter)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -147,8 +210,8 @@ def start_diktat():
     if not diktat_name or diktat_name not in get_diktate_list():
         return redirect(url_for('index'))
         
-    sentences = parse_diktat(diktat_name)
-    session['diktat_name'] = diktat_name.replace('.txt', '')
+    sentences, metadata = parse_diktat(diktat_name)
+    session['diktat_name'] = metadata.get('titel', diktat_name.replace('.txt', ''))
     session['sentences'] = sentences
     session['current_index'] = 0
     session['feedback'] = None
@@ -389,6 +452,7 @@ FILE: diktat/__init__.py
 # diktat/__init__.py
 import os
 import difflib
+import re
 
 DIKTATE_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'diktate')
 
@@ -404,8 +468,37 @@ def parse_diktat(filename):
     """Reads a diktat file and returns a list of sentences."""
     filepath = os.path.join(DIKTATE_FOLDER, filename)
     with open(filepath, 'r', encoding='utf-8') as f:
-        sentences = [line.strip() for line in f if line.strip()]
-    return sentences
+        lines = f.readlines()
+    
+    # Extract metadata from headers
+    metadata = {}
+    sentences = []
+    
+    for line in lines:
+        line = line.strip()
+        if line.startswith('# '):
+            # Parse header line
+            header_match = re.match(r'#\s*(\w+):\s*(.+)', line)
+            if header_match:
+                key = header_match.group(1).lower()
+                value = header_match.group(2)
+                metadata[key] = value
+        elif line:
+            # Add non-empty lines as sentences
+            sentences.append(line)
+    
+    return sentences, metadata
+
+def get_diktate_metadata():
+    """Returns metadata for all dictations."""
+    diktate_metadata = []
+    
+    for filename in get_diktate_list():
+        _, metadata = parse_diktat(filename)
+        metadata['filename'] = filename
+        diktate_metadata.append(metadata)
+    
+    return diktate_metadata
 
 def compare_texts(original, user_input):
     """
@@ -439,6 +532,12 @@ def compare_texts(original, user_input):
 ================================================
 FILE: diktate/beispiel_diktat.txt
 ================================================
+# Titel: Frühlingserwachen
+# Thema: Natur und Jahreszeiten
+# Übung: Rechtschreibung und Grammatik
+# Schwierigkeit: 2
+# Beschreibung: Ein einfaches Diktat über den Frühling mit grundlegenden Vokabeln.
+
 Der Frühling naht mit zarten Blüten und wärmenden Sonnenstrahlen.
 Vögel zwitschern morgens leise in den noch kahlen Ästen der Bäume.
 Ein leichter Wind trägt den Duft von feuchter Erde durch die Luft.
@@ -454,6 +553,12 @@ Diese Jahreszeit erfüllt jeden mit Hoffnung und neuer Energie.
 ================================================
 FILE: diktate/diktat2.txt
 ================================================
+# Titel: Ägyptische Archäologie
+# Thema: Geschichte und Kultur
+# Übung: Komplexe Satzstrukturen und Fachbegriffe
+# Schwierigkeit: 5
+# Beschreibung: Ein anspruchsvolles Diktat mit komplexen Sätzen und Fachbegriffen aus der Archäologie.
+
 Die Archäologen mußten, um das gewaltige Pharaoengrab zu untersuchen, enorme Anstrengungen unternehmen, dessen Eingänge seit Jahrhunderten von riesigen Sandmassen verschüttet waren.
 Die geheimnisvollen Hieroglyphen, welche die Priester mit speziellen Farben auf das Sphinxfax malten, erzählten von der unsterblichen Seele des verstorbenen Königs und den Mysterien der Götter.
 Außer den berühmten Büsten der Nofretete fand man auch zahlreiche Amulette, die den Toten Schutz und eine artige Lebensfreude im Jenseits versprechen sollten.
@@ -547,7 +652,7 @@ FILE: templates/base.html
     </main>
     <footer class="footer footer-center p-4 bg-base-300 text-base-content">
         <div>
-            <p>© 2023 - Deutscher Diktat-Trainer</p>
+            <p>© 2025 - Deutscher Diktat-Trainer</p>
         </div>
     </footer>
 </body>
@@ -565,54 +670,135 @@ FILE: templates/index.html
 {% block content %}
 {% if session.user_id %}
 <div class="hero min-h-screen bg-base-200">
-    <div class="hero-content flex-col lg:flex-row-reverse">
-        <div class="text-center lg:text-left">
+    <div class="hero-content flex-col">
+        <div class="text-center lg:text-left mb-8">
             <h1 class="text-5xl font-bold">Trainiere deine Rechtschreibung!</h1>
             <p class="py-6">Wähle ein Diktat aus unserer Liste und verbessere deine Fähigkeiten Schritt für Schritt.</p>
         </div>
-        <div class="card flex-shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
+        
+        <!-- Search and Filter Section -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
             <div class="card-body">
-                {% if diktate %}
-                <!-- Verstecktes Formular, das per JavaScript abgeschickt wird -->
-                <form id="startForm" action="{{ url_for('start_diktat') }}" method="POST">
-                    <input type="hidden" name="diktat" id="selectedDiktat">
-                </form>
-
-                <div class="form-control w-full">
-                    <label class="label">
-                        <span class="label-text">Wähle ein Diktat</span>
-                    </label>
-                    <!-- DaisyUI Dropdown für besseres Styling -->
-                    <div class="dropdown w-full">
-                        <label tabindex="0" class="btn btn-primary w-full justify-between">
-                            <span id="dropdownButtonText">Bitte Diktat auswählen...</span>
-                            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                        </label>
-                        <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-full">
-                            {% for d in diktate %}
-                            <li><a onclick="selectAndStart('{{ d }}')">{{ d.replace('.txt', '') | title }}</a></li>
-                            {% endfor %}
-                        </ul>
+                <h2 class="card-title justify-center text-2xl mb-4">Diktate suchen und filtern</h2>
+                
+                <!-- Search Bar -->
+                <div class="form-control mb-4">
+                    <div class="input-group">
+                        <input type="text" name="search" placeholder="Suche nach Titel oder Beschreibung..." 
+                               class="input input-bordered flex-1" value="{{ search_query }}" />
+                        <button type="submit" form="filterForm" class="btn btn-square btn-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </button>
                     </div>
                 </div>
-
-                <script>
-                    function selectAndStart(diktatName) {
-                        // Setzt den Wert des versteckten Input-Feldes
-                        document.getElementById('selectedDiktat').value = diktatName;
-                        // Schickt das Formular ab
-                        document.getElementById('startForm').submit();
-                    }
-                </script>
-
-                {% else %}
-                <div class="alert alert-warning">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    <span>Keine Diktate gefunden. Bitte fügen Sie .txt Dateien zum Ordner <code>/diktate</code> hinzu.</span>
-                </div>
-                {% endif %}
+                
+                <!-- Filter Form -->
+                <form id="filterForm" action="{{ url_for('index') }}" method="GET">
+                    <input type="hidden" name="search" value="{{ search_query }}" />
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Theme Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Thema</span>
+                            </label>
+                            <select name="thema" class="select select-bordered">
+                                <option value="">Alle Themen</option>
+                                {% for thema in themen %}
+                                <option value="{{ thema }}" {% if thema_filter == thema %}selected{% endif %}>{{ thema }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <!-- Exercise Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Übung</span>
+                            </label>
+                            <select name="uebung" class="select select-bordered">
+                                <option value="">Alle Übungen</option>
+                                {% for uebung in uebungen %}
+                                <option value="{{ uebung }}" {% if uebung_filter == uebung %}selected{% endif %}">{{ uebung }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <!-- Difficulty Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Schwierigkeit</span>
+                            </label>
+                            <select name="schwierigkeit" class="select select-bordered">
+                                <option value="">Alle Schwierigkeitsstufen</option>
+                                {% for stufe in schwierigkeiten %}
+                                <option value="{{ stufe }}" {% if schwierigkeit_filter == stufe %}selected{% endif %}>
+                                    {% if stufe == '1' %}Sehr einfach
+                                    {% elif stufe == '2' %}Einfach
+                                    {% elif stufe == '3' %}Mittel
+                                    {% elif stufe == '4' %}Schwer
+                                    {% elif stufe == '5' %}Sehr schwer
+                                    {% else %}Stufe {{ stufe }}
+                                    {% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-control mt-4">
+                        <button type="submit" class="btn btn-primary w-full">Filter anwenden</button>
+                    </div>
+                </form>
             </div>
         </div>
+        
+        <!-- Dictation List -->
+        {% if diktate %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for diktat in diktate %}
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title">{{ diktat.get('titel', diktat.filename.replace('.txt', '')) }}</h2>
+                    
+                    <!-- Metadata -->
+                    <div class="flex flex-wrap gap-2 mb-2">
+                        {% if diktat.get('thema') %}
+                        <div class="badge badge-outline">{{ diktat.thema }}</div>
+                        {% endif %}
+                        {% if diktat.get('übung') %}
+                        <div class="badge badge-outline">{{ diktat.übung }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Difficulty Stars -->
+                    <div class="mb-2">
+                        {{ diktat.stars_html | safe }}
+                    </div>
+                    
+                    <!-- Description -->
+                    {% if diktat.get('beschreibung') %}
+                    <p class="text-sm text-base-content/70 mb-4">{{ diktat.beschreibung }}</p>
+                    {% endif %}
+                    
+                    <!-- Start Button -->
+                    <form action="{{ url_for('start_diktat') }}" method="POST">
+                        <input type="hidden" name="diktat" value="{{ diktat.filename }}">
+                        <button type="submit" class="btn btn-primary w-full">Starten</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-warning">
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>Keine Diktate gefunden, die Ihren Kriterien entsprechen. Bitte passen Sie Ihre Filter an oder fügen Sie neue .txt Dateien zum Ordner <code>/diktate</code> hinzu.</span>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% else %}

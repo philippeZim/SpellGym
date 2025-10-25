@@ -2,18 +2,25 @@ x wenn man während eines Diktates in die Settings geht und das Theme ändert, u
 x wenn man auf diktat wählen clicked dann ist das drop down menu nicht so schön gestyled wie der rest. also das was aufgeklapt wird.
 x ein login fehlt mit username und passwort.
 x wenn man auf prüfen geht und alles richtig hat, sollte auch der hintergrund grün sein und einen haken icon haben und kein kreuz
-- wenn man ein diktat beendet, sollte man eine übersich, über all seine fehler sehen, und noch ein par sinnvolle statistiken und graphen.
-- füge eine profil seite hinzu, wo man statistiken siht, wie viele der diktate man bereits bearbeitet hat, Was die durschnittliche genauigkeit wah und weitere nützliche metriken um seinen vortschritt zu tracken. Sowie die rechtschreibfehler die man gemacht hat, geranked nach häufigkeit.
+x wenn man ein diktat beendet, sollte man eine übersich, über all seine fehler sehen, und noch ein par sinnvolle statistiken und graphen.
+- füge eine profil seite hinzu, wo man statistiken siht, wie welche diktate man bereits bearbeitet hat, Was die durschnittliche genauigkeit wah. Sowie die rechtschreibfehler die man gemacht hat, geranked nach häufigkeit.
 - füge eine Theorie seite hinzu
-- verbessere die auswahl der Dikate, ein upgrade vom einfachen dropdown, füge verschiedene filtermöglichkeiten hinzu nach Thema oder übung oder schwierigkeit (Die schwierigkeit soll graphisch an einem Sterne ranking erkennbar sein). Dazu sollen in den Diktat text files jetzt immer ein header hinzugefügt werden der diese Kategorien enthält. Auserdem soll man eine suchleiste haben die es einem erlaubt, nach einem bestimmten Diktat zu suchen.
+- diktate auswahl filter verbugt
 - füge eine seite für spezielle Rechtschreibübungen hinzu. Wo man bestimmte Themen nochmal gesondert trainieren kann.
 x Bei einem Dikat behalte den Knopf der den ganzen Satz vorliest, aber füge einen hinzu der nur die nächsten 3 wörter vorliest. Es soll geschaut werden, welche wörter du bereits getippt hast und die nächsten 3 vorgelesen werden.
-- performance verbessern z.B. mit htmx
-- entferne sie wurden erfolgreich an/abgemelded nachichten wie auch Willkommen zurück, Nachicht. Entferne die test konten und füge ein registrierungs seite ein. füge eine sqlite anbindung hinzu in der nutzer daten verwaltet werden.
+- performance verbessern z.B. mit htmx, switch auf drogon c++
+x entferne sie wurden erfolgreich an/abgemelded nachichten wie auch Willkommen zurück, Nachicht. Entferne die test konten und füge ein registrierungs seite ein. füge eine sqlite anbindung hinzu in der nutzer daten verwaltet werden.
 x extrahiere logik und datenbanken logik und def aus der main in separate orte (nutze sql wrapper?)
 - ansicht mit nachster Satz button ist komisch
 x kreis user logo ist verbugt zeige einen runden kreis mit dem ersten buchstaben des benutzernamens als logo
 - mir gefällt es nicht dass ich auf der home ansicht scrollen kann, die seite ist zu groß für so wenig elemente die angezeigt werden.
-
-
-
+- in der schreib ansicht das graue weg - satz wird hier vorgelesen entfernen
+x focus immer auf tipp feld
+- Korrigierter Text so wie geschrieben + bunt richtig on hover mit regeln
+- mehrere Fehler in einem Wort
+- footer im schreib modus nicht unten
+- nächste 3 wörter wenn lehrtaste
+- andere Schriftart und größe 
+- belohnungs system smylies daumen hoch ein brand eine figur.
+- mobile view scaling
+- footer zu weit oben
