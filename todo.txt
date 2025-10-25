@@ -14,7 +14,7 @@ x extrahiere logik und datenbanken logik und def aus der main in separate orte (
 - ansicht mit nachster Satz button ist komisch
 x kreis user logo ist verbugt zeige einen runden kreis mit dem ersten buchstaben des benutzernamens als logo
 - mir gefällt es nicht dass ich auf der home ansicht scrollen kann, die seite ist zu groß für so wenig elemente die angezeigt werden.
-- in der schreib ansicht das graue weg - satz wird hier vorgelesen entfernen
+x in der schreib ansicht das graue weg - satz wird hier vorgelesen entfernen
 x focus immer auf tipp feld
 - Korrigierter Text so wie geschrieben + bunt richtig on hover mit regeln
 - mehrere Fehler in einem Wort
@@ -25,3 +25,4 @@ x focus immer auf tipp feld
 - mobile view scaling
 - footer zu weit oben
 - in den them settings wenn darkmode aktive ist sieht das light theme dark aus (Themes sollen nicht mit aktuellem theme gestyled werden)
+- wenn jemand die sprach buttons spammed sollen nicht alle clickes gespeichert werden und so oft vorgelesen werden sondern es wird nur ein neuer vorleseprozess gestarted, wenn gerade keiner am laufen ist.
