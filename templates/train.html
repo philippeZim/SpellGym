@@ -1,0 +1,166 @@
+<!-- FILE: templates/train.html -->
+{% extends "base.html" %}
+
+{% block title %}Training: {{ session.get('diktat_name', 'Diktat') }}{% endblock %}
+
+{% block content %}
+{% if finished %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h1 class="text-5xl font-bold text-success">Geschafft!</h1>
+            <p class="py-6">Sie haben das Diktat "{{ diktat_name }}" erfolgreich beendet.</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Zurück zur Übersicht</a>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="mockup-window border bg-base-300">
+    <div class="flex justify-center px-4 py-16 bg-base-200">
+        <div class="w-full max-w-2xl">
+            <!-- Progress Bar -->
+            <div class="w-full bg-base-300 rounded-full h-4 mb-6">
+                <div class="bg-primary h-4 rounded-full flex items-center justify-center text-xs text-primary-content" style="width: {{ (sentence_number / total_sentences) * 100 }}%;">
+                    {{ sentence_number }} / {{ total_sentences }}
+                </div>
+            </div>
+
+            <!-- Main Card -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title justify-center text-2xl mb-4">Diktat: {{ session.get('diktat_name', 'Unbekannt') }}</h2>
+                    <p class="text-center text-base-content/70 mb-6">Hören Sie sich den Satz an und schreiben Sie ihn ab.</p>
+                    
+                    <div class="form-control">
+                        <div class="input-group">
+                            <button id="speakBtn" class="btn btn-info" data-sentence="{{ sentence }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                                Ganzen Satz
+                            </button>
+                            <button id="speakNextWordsBtn" class="btn btn-secondary" data-sentence="{{ sentence }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                                Nächste 3 Wörter
+                            </button>
+                            <input type="text" value="Satz wird hier vorgelesen" class="input input-bordered input-info" disabled />
+                        </div>
+                    </div>
+
+                    <form action="{{ url_for('check_answer') }}" method="POST" id="answerForm" class="mt-6">
+                        <div class="form-control">
+                            <textarea name="user_input" id="userInput" class="textarea textarea-bordered h-24" placeholder="Schreiben Sie hier den Satz..." autofocus spellcheck="false"></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% if feedback %}
+            {% if session.get('is_correct', False) %}
+            <!-- Correct answer alert -->
+            <div class="alert alert-success mt-6 shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h3 class="font-bold">Perfekt!</h3>
+                    <div class="text-xs mt-2 comparison-text">{{ feedback | safe }}</div>
+                </div>
+            </div>
+            {% else %}
+            <!-- Incorrect answer alert -->
+            <div class="alert alert-error mt-6 shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h3 class="font-bold">Ihr Ergebnis:</h3>
+                    <div class="text-xs mt-2 comparison-text">{{ feedback | safe }}</div>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+
+            <div class="card-actions justify-end mt-6">
+                {% if feedback %}
+                <a href="{{ url_for('next_sentence') }}" class="btn btn-success">
+                    {% if sentence_number == total_sentences %}
+                    Diktat beenden
+                    {% else %}
+                    Nächster Satz
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                    {% endif %}
+                </a>
+                {% else %}
+                <button type="submit" form="answerForm" class="btn btn-primary">Prüfen</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const speakBtn = document.getElementById('speakBtn');
+        const speakNextWordsBtn = document.getElementById('speakNextWordsBtn');
+        const userInput = document.getElementById('userInput');
+        
+        // Funktion zum Vorlesen von Text
+        const speakText = (text) => {
+            if ('speechSynthesis' in window) {
+                // Stimmen werden asynchron geladen, daher müssen wir ggf. warten
+                const loadVoicesAndSpeak = () => {
+                    const germanVoice = speechSynthesis.getVoices().find(voice => voice.lang.startsWith('de'));
+                    
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    if (germanVoice) {
+                        utterance.voice = germanVoice;
+                    } else {
+                        console.warn('Keine deutsche Stimme gefunden. Es wird eine Standardsprache verwendet.');
+                    }
+                    utterance.lang = 'de-DE';
+                    utterance.rate = 0.9;
+                    
+                    speechSynthesis.speak(utterance);
+                };
+
+                if (speechSynthesis.getVoices().length === 0) {
+                    speechSynthesis.onvoiceschanged = loadVoicesAndSpeak;
+                } else {
+                    loadVoicesAndSpeak();
+                }
+            } else {
+                alert('Ihr Browser unterstützt die Web Speech API nicht.');
+            }
+        };
+        
+        // Event Listener für den "Ganzen Satz" Button
+        if (speakBtn) {
+            speakBtn.addEventListener('click', () => {
+                const sentence = speakBtn.dataset.sentence;
+                speakText(sentence);
+            });
+        }
+        
+        // Event Listener für den "Nächste 3 Wörter" Button
+        if (speakNextWordsBtn) {
+            speakNextWordsBtn.addEventListener('click', () => {
+                const fullSentence = speakNextWordsBtn.dataset.sentence;
+                const userText = userInput.value.trim();
+                
+                // Satz in Wörter aufteilen
+                const sentenceWords = fullSentence.split(' ');
+                
+                // Benutzereingabe in Wörter aufteilen. Wir zählen einfach die Wörter, unabhängig von ihrer Korrektheit.
+                // .split(/\s+/) ist robust gegenüber mehreren Leerzeichen.
+                const userWords = userText.split(/\s+/).filter(word => word.length > 0);
+                
+                // Der Index des nächsten Wortes ist die Anzahl der bereits getippten Wörter.
+                const nextWordIndex = userWords.length;
+                
+                // Extrahieren Sie die nächsten 3 Wörter (oder weniger, wenn das Satzende erreicht ist)
+                const nextWords = sentenceWords.slice(nextWordIndex, nextWordIndex + 3).join(' ');
+                
+                if (nextWords) {
+                    speakText(nextWords);
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

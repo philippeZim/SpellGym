@@ -1,0 +1,151 @@
+<!-- FILE: templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}Startseite - Diktat-Trainer{% endblock %}
+
+{% block content %}
+{% if session.user_id %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content flex-col">
+        <div class="text-center lg:text-left mb-8">
+            <h1 class="text-5xl font-bold">Trainiere deine Rechtschreibung!</h1>
+            <p class="py-6">Wähle ein Diktat aus unserer Liste und verbessere deine Fähigkeiten Schritt für Schritt.</p>
+        </div>
+        
+        <!-- Search and Filter Section -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title justify-center text-2xl mb-4">Diktate suchen und filtern</h2>
+                
+                <!-- Search Bar -->
+                <div class="form-control mb-4">
+                    <div class="input-group">
+                        <input type="text" name="search" placeholder="Suche nach Titel oder Beschreibung..." 
+                               class="input input-bordered flex-1" value="{{ search_query }}" />
+                        <button type="submit" form="filterForm" class="btn btn-square btn-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Filter Form -->
+                <form id="filterForm" action="{{ url_for('index') }}" method="GET">
+                    <input type="hidden" name="search" value="{{ search_query }}" />
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Theme Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Thema</span>
+                            </label>
+                            <select name="thema" class="select select-bordered">
+                                <option value="">Alle Themen</option>
+                                {% for thema in themen %}
+                                <option value="{{ thema }}" {% if thema_filter == thema %}selected{% endif %}>{{ thema }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <!-- Exercise Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Übung</span>
+                            </label>
+                            <select name="uebung" class="select select-bordered">
+                                <option value="">Alle Übungen</option>
+                                {% for uebung in uebungen %}
+                                <option value="{{ uebung }}" {% if uebung_filter == uebung %}selected{% endif %}">{{ uebung }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <!-- Difficulty Filter -->
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Schwierigkeit</span>
+                            </label>
+                            <select name="schwierigkeit" class="select select-bordered">
+                                <option value="">Alle Schwierigkeitsstufen</option>
+                                {% for stufe in schwierigkeiten %}
+                                <option value="{{ stufe }}" {% if schwierigkeit_filter == stufe %}selected{% endif %}>
+                                    {% if stufe == '1' %}Sehr einfach
+                                    {% elif stufe == '2' %}Einfach
+                                    {% elif stufe == '3' %}Mittel
+                                    {% elif stufe == '4' %}Schwer
+                                    {% elif stufe == '5' %}Sehr schwer
+                                    {% else %}Stufe {{ stufe }}
+                                    {% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-control mt-4">
+                        <button type="submit" class="btn btn-primary w-full">Filter anwenden</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Dictation List -->
+        {% if diktate %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for diktat in diktate %}
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title">{{ diktat.get('titel', diktat.filename.replace('.txt', '')) }}</h2>
+                    
+                    <!-- Metadata -->
+                    <div class="flex flex-wrap gap-2 mb-2">
+                        {% if diktat.get('thema') %}
+                        <div class="badge badge-outline">{{ diktat.thema }}</div>
+                        {% endif %}
+                        {% if diktat.get('übung') %}
+                        <div class="badge badge-outline">{{ diktat.übung }}</div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Difficulty Stars -->
+                    <div class="mb-2">
+                        {{ diktat.stars_html | safe }}
+                    </div>
+                    
+                    <!-- Description -->
+                    {% if diktat.get('beschreibung') %}
+                    <p class="text-sm text-base-content/70 mb-4">{{ diktat.beschreibung }}</p>
+                    {% endif %}
+                    
+                    <!-- Start Button -->
+                    <form action="{{ url_for('start_diktat') }}" method="POST">
+                        <input type="hidden" name="diktat" value="{{ diktat.filename }}">
+                        <button type="submit" class="btn btn-primary w-full">Starten</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-warning">
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>Keine Diktate gefunden, die Ihren Kriterien entsprechen. Bitte passen Sie Ihre Filter an oder fügen Sie neue .txt Dateien zum Ordner <code>/diktate</code> hinzu.</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h1 class="text-5xl font-bold">Willkommen beim Diktat-Trainer!</h1>
+            <p class="py-6">Bitte melden Sie sich an, um auf die Diktate zuzugreifen.</p>
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Anmelden</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

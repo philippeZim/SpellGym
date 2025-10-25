@@ -1,0 +1,1 @@
+gitingest . -e README.md -e pyproject.toml -e todo.txt -e users.db -e uv.lock -e .python-version -e flask_session/

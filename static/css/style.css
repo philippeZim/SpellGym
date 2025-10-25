@@ -1,0 +1,12 @@
+/* Stile für die Fehler-Anzeige mit DaisyUI-Klassen */
+.comparison-text {
+    line-height: 2.2;
+    font-family: monospace;
+}
+
+.comparison-text .badge {
+    padding: 4px 8px;
+    margin: 2px;
+    font-weight: normal;
+    font-size: 1em;
+}

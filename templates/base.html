@@ -1,0 +1,66 @@
+<!-- FILE: templates/base.html -->
+<!DOCTYPE html>
+<html lang="de" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Deutscher Diktat-Trainer{% endblock %}</title>
+    <!-- DaisyUI & Tailwind CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@2.51.5/dist/full.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="min-h-screen bg-base-200">
+    <header>
+        <div class="navbar bg-base-100 shadow-lg">
+            <div class="flex-1">
+                <a href="{{ url_for('index') }}" class="btn btn-ghost normal-case text-xl">Diktat-Trainer</a>
+            </div>
+            <div class="flex-none">
+                {% if session.username %}
+                <div class="dropdown dropdown-end">
+                    <label tabindex="0" class="btn btn-ghost btn-circle avatar">
+                        <div class="avatar avatar-placeholder">
+                            <div class="bg-neutral text-neutral-content rounded-full w-10 h-10 flex items-center justify-center pt-1.5">
+                                <span class="text-xl">{{ session.username[0]|upper }}</span>
+                            </div>
+                        </div>
+                    </label>
+                    <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                        <li><a>{{ session.username }}</a></li>
+                        <li><a href="{{ url_for('settings') }}">Einstellungen</a></li>
+                        <li><a href="{{ url_for('logout') }}">Abmelden</a></li>
+                    </ul>
+                </div>
+                {% else %}
+                <a href="{{ url_for('login') }}" class="btn btn-ghost">Anmelden</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    
+    <!-- Flash-Messages (nur Fehler und Warnungen) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                {% if category == 'error' or category == 'warning' %}
+                    <div class="toast toast-top toast-center">
+                        <div class="alert alert-{{ category }}">
+                            <span>{{ message }}</span>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <main class="container mx-auto p-4 md:p-8">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="footer footer-center p-4 bg-base-300 text-base-content">
+        <div>
+            <p>© 2025 - Deutscher Diktat-Trainer</p>
+        </div>
+    </footer>
+</body>
+</html>

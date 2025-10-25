@@ -1,0 +1,1109 @@
+Directory structure:
+└── german-diktat-trainer/
+    ├── app.py
+    ├── auth/
+    │   └── __init__.py
+    ├── database/
+    │   └── __init__.py
+    ├── diktat/
+    │   └── __init__.py
+    ├── diktate/
+    │   ├── beispiel_diktat.txt
+    │   └── diktat2.txt
+    ├── static/
+    │   └── css/
+    │       └── style.css
+    └── templates/
+        ├── base.html
+        ├── index.html
+        ├── login.html
+        ├── register.html
+        ├── results.html
+        ├── settings.html
+        └── train.html
+
+================================================
+FILE: app.py
+================================================
+# app.py
+import os
+from flask import Flask, render_template, request, session, redirect, url_for, flash
+from flask_session import Session
+from database import init_db, verify_user, create_user, get_user_by_username
+from diktat import get_diktate_list, parse_diktat, compare_texts
+from auth import login_required, login_user, logout_user, validate_registration
+
+# --- Konfiguration ---
+app = Flask(__name__)
+
+# Wichtig für die Session-Verwaltung.
+app.config['SECRET_KEY'] = 'ein_sehr_geheimer_schlüssel_für_diktate'
+# Konfiguration für serverseitige Sessions
+app.config['SESSION_TYPE'] = 'filesystem'
+# Das Verzeichnis, in dem die Session-Dateien gespeichert werden
+os.makedirs('flask_session', exist_ok=True)
+app.config['SESSION_FILE_DIR'] = 'flask_session'
+
+Session(app)
+
+# --- Datenbank beim Start der App initialisieren ---
+init_db()
+
+# --- Context Processor ---
+# Macht die Variable 'theme' in allen Templates verfügbar
+@app.context_processor
+def inject_theme():
+    theme = session.get('theme', 'light') # Standard ist 'light'
+    return dict(theme=theme)
+
+# --- Routen ---
+@app.route('/')
+def index():
+    """Startseite: Zeigt alle verfügbaren Diktate an."""
+    diktate = get_diktate_list()
+    return render_template('index.html', diktate=diktate)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login-Seite."""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = verify_user(username, password)
+        
+        if user:
+            login_user(user)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        else:
+            flash('Ungültiger Benutzername oder Passwort.', 'error')
+    
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Registrierungsseite."""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        # Validierung der Eingaben
+        errors = validate_registration(username, password, confirm_password)
+        
+        if errors:
+            for error in errors:
+                flash(error, 'error')
+            return render_template('register.html')
+        
+        # Prüfen, ob der Benutzername bereits existiert
+        existing_user = get_user_by_username(username)
+        
+        if existing_user:
+            flash('Dieser Benutzername ist bereits vergeben.', 'error')
+            return render_template('register.html')
+        
+        # Neuen Benutzer erstellen
+        if create_user(username, password):
+            flash('Registrierung erfolgreich. Sie können sich jetzt anmelden.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('Bei der Registrierung ist ein Fehler aufgetreten.', 'error')
+    
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    """Logout-Funktion."""
+    logout_user()
+    return redirect(url_for('login'))
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    if request.method == 'POST':
+        selected_theme = request.form.get('theme')
+        if selected_theme:
+            session['theme'] = selected_theme
+        
+        back_url = session.pop('settings_back_url', url_for('index'))
+        return redirect(back_url)
+
+    back_url = url_for('index')
+    
+    if request.referrer and request.referrer.endswith(url_for('train')) and session.get('sentences'):
+        back_url = url_for('train')
+        
+    session['settings_back_url'] = back_url
+        
+    return render_template('settings.html', back_url=back_url)
+
+@app.route('/start', methods=['POST'])
+@login_required
+def start_diktat():
+    """Startet ein ausgewähltes Diktat und initialisiert die Session."""
+    diktat_name = request.form.get('diktat')
+    if not diktat_name or diktat_name not in get_diktate_list():
+        return redirect(url_for('index'))
+        
+    sentences = parse_diktat(diktat_name)
+    session['diktat_name'] = diktat_name.replace('.txt', '')
+    session['sentences'] = sentences
+    session['current_index'] = 0
+    session['feedback'] = None
+    session['attempts'] = []  # Initialize attempts list
+    
+    return redirect(url_for('train'))
+
+@app.route('/train')
+@login_required
+def train():
+    """Hauptseite zum Trainieren eines Satzes."""
+    if 'sentences' not in session or 'current_index' not in session:
+        return redirect(url_for('index'))
+
+    current_index = session['current_index']
+    sentences = session['sentences']
+    
+    if current_index >= len(sentences):
+        # Diktat beendet - redirect to results page
+        return redirect(url_for('results'))
+
+    current_sentence = sentences[current_index]
+    total_sentences = len(sentences)
+    sentence_number = current_index + 1
+    
+    feedback_html = session.get('feedback')
+    
+    return render_template(
+        'train.html',
+        sentence=current_sentence,
+        sentence_number=sentence_number,
+        total_sentences=total_sentences,
+        feedback=feedback_html,
+        finished=False
+    )
+
+@app.route('/check', methods=['POST'])
+@login_required
+def check_answer():
+    """Prüft die Antwort des Benutzers und speichert das Feedback in der Session."""
+    user_input = request.form.get('user_input', '')
+    original_sentence = session['sentences'][session['current_index']]
+    
+    feedback_html, is_correct = compare_texts(original_sentence, user_input)
+    session['feedback'] = feedback_html
+    session['is_correct'] = is_correct
+    
+    # Store the attempt in the session
+    if 'attempts' not in session:
+        session['attempts'] = []
+    
+    session['attempts'].append({
+        'original': original_sentence,
+        'user_input': user_input,
+        'feedback': feedback_html,
+        'is_correct': is_correct
+    })
+    
+    return redirect(url_for('train'))
+
+@app.route('/next')
+@login_required
+def next_sentence():
+    """Wechselt zum nächsten Satz."""
+    session['current_index'] += 1
+    session['feedback'] = None  # Feedback für den nächsten Satz zurücksetzen
+    session['is_correct'] = None  # Reset correctness for the next sentence
+    return redirect(url_for('train'))
+
+if __name__ == '__main__':
+    # Stellt sicher, dass der Diktate-Ordner existiert
+    from diktat import DIKTATE_FOLDER
+    if not os.path.exists(DIKTATE_FOLDER):
+        os.makedirs(DIKTATE_FOLDER)
+    
+    app.run(debug=True)
+
+@app.route('/results')
+@login_required
+def results():
+    """Zeigt die Ergebnisse des abgeschlossenen Diktats an."""
+    if 'attempts' not in session:
+        return redirect(url_for('index'))
+    
+    diktat_name = session.get('diktat_name', 'Unbekannt')
+    attempts = session['attempts']
+    
+    # Calculate statistics
+    total_sentences = len(attempts)
+    correct_sentences = sum(1 for attempt in attempts if attempt['is_correct'])
+    
+    # Calculate word-level accuracy
+    total_words = 0
+    correct_words = 0
+    
+    for attempt in attempts:
+        original_words = attempt['original'].split()
+        user_words = attempt['user_input'].split()
+        
+        total_words += len(original_words)
+        
+        # Compare words one by one
+        for i in range(min(len(original_words), len(user_words))):
+            if original_words[i] == user_words[i]:
+                correct_words += 1
+    
+    word_accuracy = (correct_words / total_words) * 100 if total_words > 0 else 0
+    
+    # Separate correct and incorrect attempts
+    correct_attempts = [attempt for attempt in attempts if attempt['is_correct']]
+    incorrect_attempts = [attempt for attempt in attempts if not attempt['is_correct']]
+    
+    # Clear the session data for the next dictation
+    session.pop('diktat_name', None)
+    session.pop('sentences', None)
+    session.pop('current_index', None)
+    session.pop('feedback', None)
+    session.pop('is_correct', None)
+    attempts_copy = attempts.copy()
+    incorrect_attempts_copy = incorrect_attempts.copy()
+    session.pop('attempts', None)
+    
+    return render_template('results.html', 
+                          diktat_name=diktat_name, 
+                          attempts=attempts_copy,
+                          incorrect_attempts=incorrect_attempts_copy,
+                          total_sentences=total_sentences,
+                          correct_sentences=correct_sentences,
+                          word_accuracy=word_accuracy,
+                          total_words=total_words,
+                          correct_words=correct_words)
+
+
+================================================
+FILE: auth/__init__.py
+================================================
+# auth/__init__.py
+from functools import wraps
+from flask import session, redirect, url_for, request, flash
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def login_user(user):
+    """Logs in a user by setting session variables."""
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+
+def logout_user():
+    """Logs out a user by removing session variables."""
+    session.pop('user_id', None)
+    session.pop('username', None)
+
+def validate_registration(username, password, confirm_password):
+    """Validates registration form data."""
+    errors = []
+    
+    if not username or not password:
+        errors.append('Bitte füllen Sie alle Felder aus.')
+    
+    if password != confirm_password:
+        errors.append('Die Passwörter stimmen nicht überein.')
+    
+    if len(password) < 8:
+        errors.append('Das Passwort muss mindestens 8 Zeichen lang sein.')
+    
+    return errors
+
+
+================================================
+FILE: database/__init__.py
+================================================
+# database/__init__.py
+import os
+import sqlite3
+from werkzeug.security import generate_password_hash, check_password_hash
+
+DATABASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'users.db')
+
+def init_db():
+    """Initializes the database and creates the user table if it doesn't exist."""
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_db_connection():
+    """Establishes a connection to the database."""
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def create_user(username, password):
+    """Creates a new user in the database."""
+    password_hash = generate_password_hash(password)
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', 
+                     (username, password_hash))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+def get_user_by_username(username):
+    """Retrieves a user by username."""
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    return user
+
+def verify_user(username, password):
+    """Verifies a user's credentials."""
+    user = get_user_by_username(username)
+    if user and check_password_hash(user['password_hash'], password):
+        return user
+    return None
+
+
+================================================
+FILE: diktat/__init__.py
+================================================
+# diktat/__init__.py
+import os
+import difflib
+
+DIKTATE_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'diktate')
+
+def get_diktate_list():
+    """Reads all .txt files from the diktate folder."""
+    try:
+        files = [f for f in os.listdir(DIKTATE_FOLDER) if f.endswith('.txt')]
+        return sorted(files)
+    except FileNotFoundError:
+        return []
+
+def parse_diktat(filename):
+    """Reads a diktat file and returns a list of sentences."""
+    filepath = os.path.join(DIKTATE_FOLDER, filename)
+    with open(filepath, 'r', encoding='utf-8') as f:
+        sentences = [line.strip() for line in f if line.strip()]
+    return sentences
+
+def compare_texts(original, user_input):
+    """
+    Compares two texts and returns HTML with highlighting for errors.
+    Uses DaisyUI classes for color highlighting.
+    Also returns whether the text is correct.
+    """
+    original_words = original.split()
+    user_words = user_input.split()
+
+    diff = list(difflib.ndiff(original_words, user_words))
+    
+    highlighted_html = ""
+    is_correct = True  # Assume it's correct initially
+    
+    for word_code in diff:
+        code = word_code[0]
+        word = word_code[2:]
+        if code == ' ':
+            highlighted_html += f'<span class="badge badge-success">{word}</span> '
+        elif code == '-':
+            highlighted_html += f'<span class="badge badge-warning text-decoration-line-through">{word}</span> '
+            is_correct = False  # Found a missing word, so it's incorrect
+        elif code == '+':
+            highlighted_html += f'<span class="badge badge-error">{word}</span> '
+            is_correct = False  # Found an extra word, so it's incorrect
+            
+    return highlighted_html.strip(), is_correct
+
+
+================================================
+FILE: diktate/beispiel_diktat.txt
+================================================
+Der Frühling naht mit zarten Blüten und wärmenden Sonnenstrahlen.
+Vögel zwitschern morgens leise in den noch kahlen Ästen der Bäume.
+Ein leichter Wind trägt den Duft von feuchter Erde durch die Luft.
+Die Natur erwacht langsam aus ihrem langen Winterschlaf.
+Kleine Bächlein schmelzen und plätschern ihren Weg durch die Wiesen.
+Bauern beginnen, ihre Felder für die neue Aussaat vorzubereiten.
+Kinder freuen sich auf längere Spaziergänge im frischen Grün.
+Die Tage werden merklich länger und die Abende heller.
+Man kann das Knospen der Pflanzen schon fast beobachten.
+Diese Jahreszeit erfüllt jeden mit Hoffnung und neuer Energie.
+
+
+================================================
+FILE: diktate/diktat2.txt
+================================================
+Die Archäologen mußten, um das gewaltige Pharaoengrab zu untersuchen, enorme Anstrengungen unternehmen, dessen Eingänge seit Jahrhunderten von riesigen Sandmassen verschüttet waren.
+Die geheimnisvollen Hieroglyphen, welche die Priester mit speziellen Farben auf das Sphinxfax malten, erzählten von der unsterblichen Seele des verstorbenen Königs und den Mysterien der Götter.
+Außer den berühmten Büsten der Nofretete fand man auch zahlreiche Amulette, die den Toten Schutz und eine artige Lebensfreude im Jenseits versprechen sollten.
+Wäre der antike Papyrus, auf dem die Rezepte für die Einbalsamierung mit Zedernöl und Myrrhe standen, nicht erhalten geblieben, wäre uns dieses außerordentliche Wissen verloren gegangen.
+In der Nekropole von Sakkara entdeckte man einen Sarkophag aus Alabaster, in dessen Nähe sich die vier heiligen Kanopen befanden, welche die Eingeweide des Verstorbenen enthielten.
+Obwohl die unerbittliche Sonnenhitze in der Wüste alles Leben zu vernichten scheint, symbolisiert der Phönix in der ägyptischen Mythologie die ewige Wiedergeburt aus der Asche.
+Die Cheops-Pyramide wurde so präzise aus gigantischen Kalksteinquadern errichtet, damit ihre Ausrichtung auf die Sternbilder des Himmels auch nach Jahrtausenden noch exakt bliebe.
+Der großen Zeremonie zur Krönung des neuen Pharao wohnten zahlreiche Hohepriester und Würdenträger bei, während das Volk draußen auf dem Platz jubelte.
+Die Ägypter verehrten das Nilkrokodil als heiliges Tier, das ihnen sowohl Schutz als auch Fruchtbarkeit bot, obwohl es eine ständige Gefahr für das Leben der Fischer und Bauern darstellte.
+Jeder einzelne Obelisk, den man heute noch bewundern kann, ist ein gewaltiger Monolith aus Granit, dessen mit Hieroglyphenschrift bedeckte Oberfläche eine faszinierende Geschichtsschreibung der Pharaonenzeit darstellt.
+
+
+================================================
+FILE: static/css/style.css
+================================================
+/* Stile für die Fehler-Anzeige mit DaisyUI-Klassen */
+.comparison-text {
+    line-height: 2.2;
+    font-family: monospace;
+}
+
+.comparison-text .badge {
+    padding: 4px 8px;
+    margin: 2px;
+    font-weight: normal;
+    font-size: 1em;
+}
+
+
+================================================
+FILE: templates/base.html
+================================================
+<!-- FILE: templates/base.html -->
+<!DOCTYPE html>
+<html lang="de" data-theme="{{ theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Deutscher Diktat-Trainer{% endblock %}</title>
+    <!-- DaisyUI & Tailwind CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@2.51.5/dist/full.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="min-h-screen bg-base-200">
+    <header>
+        <div class="navbar bg-base-100 shadow-lg">
+            <div class="flex-1">
+                <a href="{{ url_for('index') }}" class="btn btn-ghost normal-case text-xl">Diktat-Trainer</a>
+            </div>
+            <div class="flex-none">
+                {% if session.username %}
+                <div class="dropdown dropdown-end">
+                    <label tabindex="0" class="btn btn-ghost btn-circle avatar">
+                        <div class="avatar avatar-placeholder">
+                            <div class="bg-neutral text-neutral-content rounded-full w-10 h-10 flex items-center justify-center pt-1.5">
+                                <span class="text-xl">{{ session.username[0]|upper }}</span>
+                            </div>
+                        </div>
+                    </label>
+                    <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                        <li><a>{{ session.username }}</a></li>
+                        <li><a href="{{ url_for('settings') }}">Einstellungen</a></li>
+                        <li><a href="{{ url_for('logout') }}">Abmelden</a></li>
+                    </ul>
+                </div>
+                {% else %}
+                <a href="{{ url_for('login') }}" class="btn btn-ghost">Anmelden</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    
+    <!-- Flash-Messages (nur Fehler und Warnungen) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                {% if category == 'error' or category == 'warning' %}
+                    <div class="toast toast-top toast-center">
+                        <div class="alert alert-{{ category }}">
+                            <span>{{ message }}</span>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <main class="container mx-auto p-4 md:p-8">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="footer footer-center p-4 bg-base-300 text-base-content">
+        <div>
+            <p>© 2023 - Deutscher Diktat-Trainer</p>
+        </div>
+    </footer>
+</body>
+</html>
+
+
+================================================
+FILE: templates/index.html
+================================================
+<!-- FILE: templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}Startseite - Diktat-Trainer{% endblock %}
+
+{% block content %}
+{% if session.user_id %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content flex-col lg:flex-row-reverse">
+        <div class="text-center lg:text-left">
+            <h1 class="text-5xl font-bold">Trainiere deine Rechtschreibung!</h1>
+            <p class="py-6">Wähle ein Diktat aus unserer Liste und verbessere deine Fähigkeiten Schritt für Schritt.</p>
+        </div>
+        <div class="card flex-shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
+            <div class="card-body">
+                {% if diktate %}
+                <!-- Verstecktes Formular, das per JavaScript abgeschickt wird -->
+                <form id="startForm" action="{{ url_for('start_diktat') }}" method="POST">
+                    <input type="hidden" name="diktat" id="selectedDiktat">
+                </form>
+
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text">Wähle ein Diktat</span>
+                    </label>
+                    <!-- DaisyUI Dropdown für besseres Styling -->
+                    <div class="dropdown w-full">
+                        <label tabindex="0" class="btn btn-primary w-full justify-between">
+                            <span id="dropdownButtonText">Bitte Diktat auswählen...</span>
+                            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </label>
+                        <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-full">
+                            {% for d in diktate %}
+                            <li><a onclick="selectAndStart('{{ d }}')">{{ d.replace('.txt', '') | title }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+
+                <script>
+                    function selectAndStart(diktatName) {
+                        // Setzt den Wert des versteckten Input-Feldes
+                        document.getElementById('selectedDiktat').value = diktatName;
+                        // Schickt das Formular ab
+                        document.getElementById('startForm').submit();
+                    }
+                </script>
+
+                {% else %}
+                <div class="alert alert-warning">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <span>Keine Diktate gefunden. Bitte fügen Sie .txt Dateien zum Ordner <code>/diktate</code> hinzu.</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h1 class="text-5xl font-bold">Willkommen beim Diktat-Trainer!</h1>
+            <p class="py-6">Bitte melden Sie sich an, um auf die Diktate zuzugreifen.</p>
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Anmelden</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+
+================================================
+FILE: templates/login.html
+================================================
+<!-- FILE: templates/login.html -->
+{% extends "base.html" %}
+
+{% block title %}Login - Diktat-Trainer{% endblock %}
+
+{% block content %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content flex-col lg:flex-row-reverse">
+        <div class="text-center lg:text-left">
+            <h1 class="text-5xl font-bold">Anmelden</h1>
+            <p class="py-6">Bitte melden Sie sich an, um auf den Diktat-Trainer zuzugreifen.</p>
+        </div>
+        <div class="card flex-shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
+            <div class="card-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                                    {% if category == 'error' %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    {% elif category == 'warning' %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    {% else %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    {% endif %}
+                                </svg>
+                                <span>{{ message }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <form action="{{ url_for('login') }}" method="POST">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Benutzername</span>
+                        </label>
+                        <input type="text" name="username" placeholder="Benutzername" class="input input-bordered" required />
+                    </div>
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Passwort</span>
+                        </label>
+                        <input type="password" name="password" placeholder="Passwort" class="input input-bordered" required />
+                    </div>
+                    <div class="form-control mt-6">
+                        <button type="submit" class="btn btn-primary">Anmelden</button>
+                    </div>
+                </form>
+                
+                <div class="divider">Noch kein Konto?</div>
+                <div class="text-center">
+                    <a href="{{ url_for('register') }}" class="btn btn-link">Registrieren</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+================================================
+FILE: templates/register.html
+================================================
+<!-- FILE: templates/register.html -->
+{% extends "base.html" %}
+
+{% block title %}Registrierung - Diktat-Trainer{% endblock %}
+
+{% block content %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content flex-col lg:flex-row-reverse">
+        <div class="text-center lg:text-left">
+            <h1 class="text-5xl font-bold">Registrieren</h1>
+            <p class="py-6">Erstellen Sie ein Konto, um auf den Diktat-Trainer zuzugreifen.</p>
+        </div>
+        <div class="card flex-shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
+            <div class="card-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                                    {% if category == 'error' %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    {% elif category == 'warning' %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    {% else %}
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    {% endif %}
+                                </svg>
+                                <span>{{ message }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <form action="{{ url_for('register') }}" method="POST">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Benutzername</span>
+                        </label>
+                        <input type="text" name="username" placeholder="Benutzername" class="input input-bordered" required />
+                    </div>
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Passwort</span>
+                        </label>
+                        <input type="password" name="password" placeholder="Passwort (min. 8 Zeichen)" class="input input-bordered" required minlength="8" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Passwort bestätigen</span>
+                        </label>
+                        <input type="password" name="confirm_password" placeholder="Passwort bestätigen" class="input input-bordered" required minlength="8" />
+                    </div>
+                    <div class="form-control mt-6">
+                        <button type="submit" class="btn btn-primary">Registrieren</button>
+                    </div>
+                </form>
+                
+                <div class="divider">Bereits ein Konto?</div>
+                <div class="text-center">
+                    <a href="{{ url_for('login') }}" class="btn btn-link">Anmelden</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+================================================
+FILE: templates/results.html
+================================================
+<!-- FILE: templates/results.html -->
+{% extends "base.html" %}
+
+{% block title %}Ergebnisse: {{ diktat_name }}{% endblock %}
+
+{% block content %}
+<div class="hero min-h-screen bg-base-200 py-8">
+    <div class="hero-content flex-col w-full max-w-6xl">
+        <div class="text-center mb-8">
+            <h1 class="text-5xl font-bold">Diktat abgeschlossen!</h1>
+            <p class="py-6">Hier sind Ihre Ergebnisse für "{{ diktat_name }}":</p>
+        </div>
+        
+        <!-- Statistics Card -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title justify-center text-2xl mb-6">Statistiken</h2>
+                
+                <div class="text-center mb-6">
+                    <div class="stat">
+                        <div class="stat-title text-lg">Korrekte Sätze</div>
+                        <div class="stat-value text-primary text-4xl">{{ correct_sentences }}/{{ total_sentences }}</div>
+                    </div>
+                </div>
+                
+                <!-- Accuracy Chart -->
+                <div class="mt-6 flex justify-center">
+                    <div class="radial-progress bg-primary text-primary-content border-4 border-primary" style="--value:{{ word_accuracy }}; --size:12rem;">
+                        {{ "%.1f"|format(word_accuracy) }}%
+                    </div>
+                </div>
+                <p class="text-center mt-2">Ihre Wortgenauigkeit</p>
+            </div>
+        </div>
+        
+        <!-- Your Answers Card -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title justify-center text-2xl mb-4">Ihre Antworten</h2>
+                
+                <div class="overflow-x-auto">
+                    <table class="table w-full table-zebra">
+                        <thead>
+                            <tr>
+                                <th class="w-16">Satz</th>
+                                <th class="w-2/3">Ihre Antwort</th>
+                                <th class="w-24">Ergebnis</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attempt in attempts %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    {% if attempt.is_correct %}
+                                    <span class="text-success font-mono">{{ attempt.user_input }}</span>
+                                    {% else %}
+                                    <div class="comparison-text font-mono">{{ attempt.feedback | safe }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if attempt.is_correct %}
+                                    <div class="badge badge-success">Korrekt</div>
+                                    {% else %}
+                                    <div class="badge badge-error">Fehler</div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-actions justify-center">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Zurück zur Übersicht</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+================================================
+FILE: templates/settings.html
+================================================
+<!-- FILE: templates/settings.html -->
+{% extends "base.html" %}
+
+{% block title %}Einstellungen - Diktat-Trainer{% endblock %}
+
+{% block content %}
+<div class="card w-96 bg-base-100 shadow-xl mx-auto">
+    <div class="card-body">
+        <h2 class="card-title justify-center text-2xl mb-4">Theme-Einstellungen</h2>
+        <p class="text-center text-base-content/70 mb-6">Wähle dein bevorzugtes Design für die Anwendung.</p>
+        
+        <form action="{{ url_for('settings') }}" method="POST">
+            <div class="form-control">
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Light Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="light" class="radio peer" {% if theme == 'light' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Light</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Dark Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="dark" class="radio peer" {% if theme == 'dark' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="dark">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Dark</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Cupcake Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="cupcake" class="radio peer" {% if theme == 'cupcake' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="cupcake">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Cupcake</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Cyberpunk Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="cyberpunk" class="radio peer" {% if theme == 'cyberpunk' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="cyberpunk">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Cyberpunk</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Valentine Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="valentine" class="radio peer" {% if theme == 'valentine' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="valentine">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Valentine</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Autumn Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="autumn" class="radio peer" {% if theme == 'autumn' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="autumn">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Autumn</span>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div class="form-control mt-6">
+                <button type="submit" class="btn btn-primary w-full">Speichern</button>
+            </div>
+        </form>
+        <div class="card-actions justify-end mt-4">
+            <!-- Der Button verwendet die dynamische 'back_url' und hat eine klarere Beschriftung -->
+            <a href="{{ back_url }}" class="btn btn-ghost">Abbrechen</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+================================================
+FILE: templates/train.html
+================================================
+<!-- FILE: templates/train.html -->
+{% extends "base.html" %}
+
+{% block title %}Training: {{ session.get('diktat_name', 'Diktat') }}{% endblock %}
+
+{% block content %}
+{% if finished %}
+<div class="hero min-h-screen bg-base-200">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h1 class="text-5xl font-bold text-success">Geschafft!</h1>
+            <p class="py-6">Sie haben das Diktat "{{ diktat_name }}" erfolgreich beendet.</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Zurück zur Übersicht</a>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="mockup-window border bg-base-300">
+    <div class="flex justify-center px-4 py-16 bg-base-200">
+        <div class="w-full max-w-2xl">
+            <!-- Progress Bar -->
+            <div class="w-full bg-base-300 rounded-full h-4 mb-6">
+                <div class="bg-primary h-4 rounded-full flex items-center justify-center text-xs text-primary-content" style="width: {{ (sentence_number / total_sentences) * 100 }}%;">
+                    {{ sentence_number }} / {{ total_sentences }}
+                </div>
+            </div>
+
+            <!-- Main Card -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title justify-center text-2xl mb-4">Diktat: {{ session.get('diktat_name', 'Unbekannt') }}</h2>
+                    <p class="text-center text-base-content/70 mb-6">Hören Sie sich den Satz an und schreiben Sie ihn ab.</p>
+                    
+                    <div class="form-control">
+                        <div class="input-group">
+                            <button id="speakBtn" class="btn btn-info" data-sentence="{{ sentence }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+                                Ganzen Satz
+                            </button>
+                            <button id="speakNextWordsBtn" class="btn btn-secondary" data-sentence="{{ sentence }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
+                                Nächste 3 Wörter
+                            </button>
+                            <input type="text" value="Satz wird hier vorgelesen" class="input input-bordered input-info" disabled />
+                        </div>
+                    </div>
+
+                    <form action="{{ url_for('check_answer') }}" method="POST" id="answerForm" class="mt-6">
+                        <div class="form-control">
+                            <textarea name="user_input" id="userInput" class="textarea textarea-bordered h-24" placeholder="Schreiben Sie hier den Satz..." autofocus spellcheck="false"></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% if feedback %}
+            {% if session.get('is_correct', False) %}
+            <!-- Correct answer alert -->
+            <div class="alert alert-success mt-6 shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h3 class="font-bold">Perfekt!</h3>
+                    <div class="text-xs mt-2 comparison-text">{{ feedback | safe }}</div>
+                </div>
+            </div>
+            {% else %}
+            <!-- Incorrect answer alert -->
+            <div class="alert alert-error mt-6 shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h3 class="font-bold">Ihr Ergebnis:</h3>
+                    <div class="text-xs mt-2 comparison-text">{{ feedback | safe }}</div>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+
+            <div class="card-actions justify-end mt-6">
+                {% if feedback %}
+                <a href="{{ url_for('next_sentence') }}" class="btn btn-success">
+                    {% if sentence_number == total_sentences %}
+                    Diktat beenden
+                    {% else %}
+                    Nächster Satz
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                    {% endif %}
+                </a>
+                {% else %}
+                <button type="submit" form="answerForm" class="btn btn-primary">Prüfen</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const speakBtn = document.getElementById('speakBtn');
+        const speakNextWordsBtn = document.getElementById('speakNextWordsBtn');
+        const userInput = document.getElementById('userInput');
+        
+        // Funktion zum Vorlesen von Text
+        const speakText = (text) => {
+            if ('speechSynthesis' in window) {
+                // Stimmen werden asynchron geladen, daher müssen wir ggf. warten
+                const loadVoicesAndSpeak = () => {
+                    const germanVoice = speechSynthesis.getVoices().find(voice => voice.lang.startsWith('de'));
+                    
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    if (germanVoice) {
+                        utterance.voice = germanVoice;
+                    } else {
+                        console.warn('Keine deutsche Stimme gefunden. Es wird eine Standardsprache verwendet.');
+                    }
+                    utterance.lang = 'de-DE';
+                    utterance.rate = 0.9;
+                    
+                    speechSynthesis.speak(utterance);
+                };
+
+                if (speechSynthesis.getVoices().length === 0) {
+                    speechSynthesis.onvoiceschanged = loadVoicesAndSpeak;
+                } else {
+                    loadVoicesAndSpeak();
+                }
+            } else {
+                alert('Ihr Browser unterstützt die Web Speech API nicht.');
+            }
+        };
+        
+        // Event Listener für den "Ganzen Satz" Button
+        if (speakBtn) {
+            speakBtn.addEventListener('click', () => {
+                const sentence = speakBtn.dataset.sentence;
+                speakText(sentence);
+            });
+        }
+        
+        // Event Listener für den "Nächste 3 Wörter" Button
+        if (speakNextWordsBtn) {
+            speakNextWordsBtn.addEventListener('click', () => {
+                const fullSentence = speakNextWordsBtn.dataset.sentence;
+                const userText = userInput.value.trim();
+                
+                // Satz in Wörter aufteilen
+                const sentenceWords = fullSentence.split(' ');
+                
+                // Benutzereingabe in Wörter aufteilen. Wir zählen einfach die Wörter, unabhängig von ihrer Korrektheit.
+                // .split(/\s+/) ist robust gegenüber mehreren Leerzeichen.
+                const userWords = userText.split(/\s+/).filter(word => word.length > 0);
+                
+                // Der Index des nächsten Wortes ist die Anzahl der bereits getippten Wörter.
+                const nextWordIndex = userWords.length;
+                
+                // Extrahieren Sie die nächsten 3 Wörter (oder weniger, wenn das Satzende erreicht ist)
+                const nextWords = sentenceWords.slice(nextWordIndex, nextWordIndex + 3).join(' ');
+                
+                if (nextWords) {
+                    speakText(nextWords);
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
+

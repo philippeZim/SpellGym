@@ -1,0 +1,81 @@
+<!-- FILE: templates/settings.html -->
+{% extends "base.html" %}
+
+{% block title %}Einstellungen - Diktat-Trainer{% endblock %}
+
+{% block content %}
+<div class="card w-96 bg-base-100 shadow-xl mx-auto">
+    <div class="card-body">
+        <h2 class="card-title justify-center text-2xl mb-4">Theme-Einstellungen</h2>
+        <p class="text-center text-base-content/70 mb-6">Wähle dein bevorzugtes Design für die Anwendung.</p>
+        
+        <form action="{{ url_for('settings') }}" method="POST">
+            <div class="form-control">
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Light Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="light" class="radio peer" {% if theme == 'light' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Light</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Dark Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="dark" class="radio peer" {% if theme == 'dark' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="dark">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Dark</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Cupcake Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="cupcake" class="radio peer" {% if theme == 'cupcake' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="cupcake">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Cupcake</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Cyberpunk Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="cyberpunk" class="radio peer" {% if theme == 'cyberpunk' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="cyberpunk">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Cyberpunk</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Valentine Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="valentine" class="radio peer" {% if theme == 'valentine' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="valentine">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Valentine</span>
+                            </div>
+                        </div>
+                    </label>
+                    <!-- Autumn Theme -->
+                    <label class="cursor-pointer">
+                        <input type="radio" name="theme" value="autumn" class="radio peer" {% if theme == 'autumn' %}checked{% endif %} />
+                        <div class="card bg-base-100 border-2 border-base-300 peer-checked:border-primary" data-theme="autumn">
+                            <div class="card-body p-4 text-center">
+                                <span class="text-base-content">Autumn</span>
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div class="form-control mt-6">
+                <button type="submit" class="btn btn-primary w-full">Speichern</button>
+            </div>
+        </form>
+        <div class="card-actions justify-end mt-4">
+            <!-- Der Button verwendet die dynamische 'back_url' und hat eine klarere Beschriftung -->
+            <a href="{{ back_url }}" class="btn btn-ghost">Abbrechen</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

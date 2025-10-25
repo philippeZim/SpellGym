@@ -1,0 +1,81 @@
+<!-- FILE: templates/results.html -->
+{% extends "base.html" %}
+
+{% block title %}Ergebnisse: {{ diktat_name }}{% endblock %}
+
+{% block content %}
+<div class="hero min-h-screen bg-base-200 py-8">
+    <div class="hero-content flex-col w-full max-w-6xl">
+        <div class="text-center mb-8">
+            <h1 class="text-5xl font-bold">Diktat abgeschlossen!</h1>
+            <p class="py-6">Hier sind Ihre Ergebnisse für "{{ diktat_name }}":</p>
+        </div>
+        
+        <!-- Statistics Card -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title justify-center text-2xl mb-6">Statistiken</h2>
+                
+                <div class="text-center mb-6">
+                    <div class="stat">
+                        <div class="stat-title text-lg">Korrekte Sätze</div>
+                        <div class="stat-value text-primary text-4xl">{{ correct_sentences }}/{{ total_sentences }}</div>
+                    </div>
+                </div>
+                
+                <!-- Accuracy Chart -->
+                <div class="mt-6 flex justify-center">
+                    <div class="radial-progress bg-primary text-primary-content border-4 border-primary" style="--value:{{ word_accuracy }}; --size:12rem;">
+                        {{ "%.1f"|format(word_accuracy) }}%
+                    </div>
+                </div>
+                <p class="text-center mt-2">Ihre Wortgenauigkeit</p>
+            </div>
+        </div>
+        
+        <!-- Your Answers Card -->
+        <div class="card w-full bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title justify-center text-2xl mb-4">Ihre Antworten</h2>
+                
+                <div class="overflow-x-auto">
+                    <table class="table w-full table-zebra">
+                        <thead>
+                            <tr>
+                                <th class="w-16">Satz</th>
+                                <th class="w-2/3">Ihre Antwort</th>
+                                <th class="w-24">Ergebnis</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attempt in attempts %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>
+                                    {% if attempt.is_correct %}
+                                    <span class="text-success font-mono">{{ attempt.user_input }}</span>
+                                    {% else %}
+                                    <div class="comparison-text font-mono">{{ attempt.feedback | safe }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if attempt.is_correct %}
+                                    <div class="badge badge-success">Korrekt</div>
+                                    {% else %}
+                                    <div class="badge badge-error">Fehler</div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-actions justify-center">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Zurück zur Übersicht</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
