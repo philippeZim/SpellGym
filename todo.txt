@@ -25,4 +25,5 @@ x focus immer auf tipp feld
 - mobile view scaling
 - footer zu weit oben
 - in den them settings wenn darkmode aktive ist sieht das light theme dark aus (Themes sollen nicht mit aktuellem theme gestyled werden)
-- wenn jemand die sprach buttons spammed sollen nicht alle clickes gespeichert werden und so oft vorgelesen werden sondern es wird nur ein neuer vorleseprozess gestarted, wenn gerade keiner am laufen ist.
+x wenn jemand die sprach buttons spammed sollen nicht alle clickes gespeichert werden und so oft vorgelesen werden sondern es wird nur ein neuer vorleseprozess gestarted, wenn gerade keiner am laufen ist.
+- ganz viele neue Dikatate hinzufügen.

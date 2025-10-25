@@ -1169,7 +1169,6 @@ FILE: templates/train.html
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
                                 Nächste 3 Wörter
                             </button>
-                            <input type="text" value="Satz wird hier vorgelesen" class="input input-bordered input-info" disabled />
                         </div>
                     </div>
 
@@ -1228,9 +1227,15 @@ FILE: templates/train.html
         const speakNextWordsBtn = document.getElementById('speakNextWordsBtn');
         const userInput = document.getElementById('userInput');
         
+        // Variable to track if speech is currently in progress
+        let isSpeaking = false;
+        
         // Funktion zum Vorlesen von Text
         const speakText = (text) => {
             if ('speechSynthesis' in window) {
+                // Cancel any ongoing speech
+                speechSynthesis.cancel();
+                
                 // Stimmen werden asynchron geladen, daher müssen wir ggf. warten
                 const loadVoicesAndSpeak = () => {
                     const germanVoice = speechSynthesis.getVoices().find(voice => voice.lang.startsWith('de'));
@@ -1243,6 +1248,19 @@ FILE: templates/train.html
                     }
                     utterance.lang = 'de-DE';
                     utterance.rate = 0.9;
+                    
+                    // Set up event handlers
+                    utterance.onstart = () => {
+                        isSpeaking = true;
+                    };
+                    
+                    utterance.onend = () => {
+                        isSpeaking = false;
+                    };
+                    
+                    utterance.onerror = () => {
+                        isSpeaking = false;
+                    };
                     
                     speechSynthesis.speak(utterance);
                 };
